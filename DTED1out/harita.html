@@ -1,0 +1,85 @@
+<!DOCTYPE html>
+<html lang="tr">
+<head>
+  <meta charset="utf-8">
+  <title>Cesium 3D Canlı Harita - Katman Kilitli Sürüm</title>
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/cesium/1.110.0/Cesium.js"></script>
+  <link href="https://cdnjs.cloudflare.com/ajax/libs/cesium/1.110.0/Widgets/widgets.css" rel="stylesheet">
+  <style>
+    html, body, #cesiumContainer { width: 100%; height: 100%; margin: 0; padding: 0; overflow: hidden; background-color: #000; }
+  </style>
+</head>
+<body>
+
+  <div id="cesiumContainer"></div>
+
+  <script>
+    // 1. BOŞ BİR ALTLIKLA BAŞLATMA (Çökmeyi önlemek için standart grid sistemi)
+    const baseImagery = new Cesium.GridImageryProvider();
+
+
+    const viewer = new Cesium.Viewer('cesiumContainer', {
+      imageryProvider: baseImagery,
+      baseLayerPicker: false,
+      geocoder: false, 
+      homeButton: false, 
+      sceneModePicker: false, 
+      navigationHelpButton: false, 
+      animation: false, 
+      timeline: false,
+      shadows: true,
+      terrainShadows: Cesium.ShadowMode.ENABLED
+    });
+
+    // 🎯 2. MAPSERVER LOKAL UYDU GÖRÜNTÜSÜ (8085) - COĞRAFİ SINIR KİLİTLİ
+    // MapServer'ın veriyi düzgün basması için Türkiye/Akdoğan bölgesinin koordinat sınırlarını (BBOX) Cesium'a dikte ediyoruz:
+    const mapBounds = Cesium.Rectangle.fromDegrees(34.0, 36.5, 36.0, 38.0); // Verinin kapsadığı tahmini alan
+
+    const wmsImageryProvider = new Cesium.WebMapServiceImageryProvider({
+        url: 'http://localhost:8085/',
+        layers: 'uydu_dokusu', 
+        parameters: { 
+            SERVICE: 'WMS', 
+            VERSION: '1.1.1', 
+            REQUEST: 'GetMap', 
+            STYLES: '', 
+            FORMAT: 'image/png', // Net kenarlar için PNG
+            SRS: 'EPSG:4326',
+            TRANSPARENT: 'true'
+        },
+        rectangle: mapBounds // 🎯 Cesium'a diyoruz ki: "Sadece bu koordinat sınırları içinde MapServer'dan resim iste!"
+    });
+    
+    // Katmanı zorla ekliyoruz ve en üste çekiyoruz
+    const myUyduLayer = viewer.imageryLayers.addImageryProvider(wmsImageryProvider);
+    myUyduLayer.alpha = 1.0;
+
+    // 🚀 3. LOKAL ARAZİ MOTORU (8080 - server.py)
+    Cesium.CesiumTerrainProvider.fromUrl('http://localhost:8080/arazi_mesh/', {
+        requestVertexNormals: true,
+        requestWaterMask: false,
+        tms: true
+    }).then(function(provider) {
+        viewer.terrainProvider = provider;
+        console.log("🚀 3D İskelet başarıyla bağlandı!");
+    });
+
+    // Grafik ve Işık Optimizasyonları
+    viewer.scene.globe.enableLighting = true; 
+    viewer.scene.globe.depthTestAgainstTerrain = true; 
+    viewer.scene.verticalExaggeration = 3.5; // Dağları şahlandıran katsayı
+
+    // 🎯 4. KAMERA KİLİDİ
+    const targetCenter = Cesium.Cartesian3.fromDegrees(34.80, 37.40, 800.0);
+    viewer.camera.lookAt(
+        targetCenter, 
+        new Cesium.HeadingPitchRange(
+            Cesium.Math.toRadians(45.0),  // Yan bakış açısı
+            Cesium.Math.toRadians(-12.0), // Yamaçlara karşıdan bakan askeri bakış
+            12000.0                       // Kadraja tam oturma mesafesi
+        )
+    );
+    viewer.camera.lookAtTransform(Cesium.Matrix4.IDENTITY);
+  </script>
+</body>
+</html>

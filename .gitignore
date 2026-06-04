@@ -1,0 +1,13 @@
+*.tiff
+*.tif
+*.dbf
+*.fix
+*.prj
+*.properties
+*.qix
+*.shp
+*.shx
+*.dat
+*.bil
+.DS_Store
+arazi_mesh/
