@@ -1,0 +1,23 @@
+version: '3.8'
+
+services:
+  mapserver:
+    image: camptocamp/mapserver:7.6
+    ports:
+      - "8080:80"
+    volumes:
+      - ./mapserver:/etc/mapserver
+      - ./data:/data
+    environment:
+      - MS_MAPFILE=/etc/mapserver/harita.map
+      - MS_CORS_ENABLED=true
+    restart: always
+
+  # Arayüzü yayınlamak için Nginx web sunucusu ekliyoruz:
+  web_arayuz:
+    image: nginx:alpine
+    ports:
+      - "80:80" # Doğrudan http://localhost adresinden açılacak
+    volumes:
+      - .:/usr/share/nginx/html # Bulunduğumuz klasörü (harita.html dahil) içeri aktarır
+    restart: always

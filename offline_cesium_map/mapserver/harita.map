@@ -1,0 +1,35 @@
+MAP
+  NAME "OFFLINE_WORLD_MAP"
+  STATUS ON
+  SIZE 1200 1000
+  EXTENT -180 -90 180 90
+  UNITS DD
+  SHAPEPATH "/data"
+  IMAGECOLOR 255 255 255
+
+  WEB
+    METADATA
+      "wms_title"          "Offline World Base Map"
+      "wms_onlineresource" "http://localhost:8080/?map=/etc/mapserver/harita.map&"
+      "wms_srs"            "EPSG:4326"
+      "wms_enable_request" "*"
+    END
+  END
+
+  PROJECTION
+    "init=epsg:4326"
+  END
+
+  LAYER
+    NAME "dunya_altlik"
+    DATA "tiledNE2_med.tiff"  # Eğer uzantısı hala .diff ise burayı tiledNE2_med.diff yap
+    TYPE RASTER
+    STATUS ON
+    PROJECTION
+      "init=epsg:4326"
+    END
+    METADATA
+      "wms_title" "Dunya Dogal Gorunum"
+    END
+  END
+END
