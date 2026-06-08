@@ -1,0 +1,15 @@
+/* Tarayıcının tüm varsayılan boşluklarını sıfırlıyoruz */
+html, body, #root {
+  width: 100% !important;
+  height: 100% !important;
+  margin: 0 !important;
+  padding: 0 !important;
+  overflow: hidden !important;
+  background-color: #000;
+}
+
+/* Cesium'un kendi container'ının da ezilip tam ekran olmasını garantiliyoruz */
+.cesium-viewer {
+  width: 100% !important;
+  height: 100% !important;
+}
