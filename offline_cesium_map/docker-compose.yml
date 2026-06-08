@@ -13,12 +13,12 @@ services:
       - MS_CORS_ENABLED=true
     restart: always
 
-  # Arayüzü yayınlamak için Nginx web sunucusu ekliyoruz:
   web_arayuz:
     image: nginx:alpine
     ports:
       - "80:80"
     volumes:
       - ./dist:/usr/share/nginx/html
-      - ./nginx.conf:/etc/nginx/nginx.conf # <-- BU SATIRI EKLEYEREK NGINX AYARINI İÇERİ VERDİK
+      - ./nginx.conf:/etc/nginx/nginx.conf
+      - ./data:/data # <-- NGINX'İN TERRAIN KLASÖRÜNÜ OKUYABİLMESİ İÇİN BU SATIRI EKLEDİK
     restart: always
