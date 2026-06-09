@@ -1,15 +1,15 @@
 import { useEffect, useRef, useState } from 'react';
 import { 
   Viewer, 
-  //WebMapServiceImageryProvider, 
-  UrlTemplateImageryProvider, 
-  //GeographicTilingScheme, 
+  WebMapServiceImageryProvider, 
+  GeographicTilingScheme,       
   CesiumTerrainProvider, 
-  Cartesian3, 
+  Cartesian3,                   
   Math as CesiumMath, 
   Ion,
   ScreenSpaceEventHandler,
-  ScreenSpaceEventType
+  ScreenSpaceEventType,
+  OpenStreetMapImageryProvider
 } from 'cesium';
 import 'cesium/Source/Widgets/widgets.css';
 
@@ -19,8 +19,8 @@ function App() {
   
   // Alt bar (Footer) için koordinat ve yükseklik state'leri
   const [coords, setCoords] = useState({ lon: '0.000000', lat: '0.000000', height: '0' });
-  // Dikey abartı katsayısı state'i (Varsayılan 1.0x - Gerçek boyut)
-  const [exaggeration, setExaggeration] = useState(1.0);
+  // Dikey abartı katsayısı state'i (Varsayılan 2.0x)
+  const [exaggeration, setExaggeration] = useState(2.0); 
 
   // Sol üstteki slider kaydırıldığında arazinin yüksekliğini dinamik değiştiren fonksiyon
   const handleExaggerationChange = (e: React.ChangeEvent<HTMLInputElement>) => {
@@ -36,15 +36,21 @@ function App() {
   useEffect(() => {
     if (!cesiumContainerRef.current) return;
 
-    // Çevrimdışı/Bağımsız Mod: Cesium ion sunucularına zorunlu istek atılmasını engeller
-    Ion.defaultAccessToken = '';
+    // Çevrimdışı/Bağımsız Mod
+    Ion.defaultAccessToken = ''; 
+    const mevcutIP = window.location.hostname;
 
-    const initializeCesium = async () => {
+    const initializeCesium = async () => { // async = bu fonksiyon internetteki kaynaklara erişmeye çalışırken bekleme yapacak.
       try {
-        // 1. Yerel Arazi (Terrain) Yüklemesi (Fiziksel data/ klasöründen okur)
-        const yerelTerrain = await CesiumTerrainProvider.fromUrl('http://localhost/terrain/', {
-          requestVertexNormals: true // Dağların ve vadilerin gölgelendirmelerini netleştirir
-        });
+        // 1. Yerel Arazi (Terrain) Yüklemesi (Dinamik IP üzerinden)
+        let yerelTerrain;
+        try {
+          yerelTerrain = await CesiumTerrainProvider.fromUrl(`http://${mevcutIP}/terrain/`, {
+            requestVertexNormals: true 
+          });
+        } catch (e) {
+          console.warn("Yerel arazi yüklenemedi, düz dünya modeliyle devam ediliyor.");
+        }
 
         // 2. Cesium Viewer Başlatma
         const viewer = new Viewer(cesiumContainerRef.current!, {
@@ -55,95 +61,90 @@ function App() {
           navigationHelpButton: false,
           animation: false,
           timeline: false,
-          creditContainer: document.createElement('div'), // Cesium logosunu gizler
-          baseLayer: false, // Varsayılan online dünya uydusunu kapatarak siyah ekranı engeller
-          terrainProvider: yerelTerrain // 3D arazi modelimizi küreye gömer
+          creditContainer: document.createElement('div'), 
+          baseLayer: false, 
+          terrainProvider: yerelTerrain 
         });
 
-        // --- BAŞLANGIÇ DİKEY ABARTI AYARI ---
+        // --- BAŞLANGIÇ DİKEY ABARTI AYARI ---
         viewer.scene.verticalExaggeration = exaggeration; 
+        viewer.scene.verticalExaggerationRelativeHeight = 0.0;
+
+        // 🚨 SLIDER'I KURTARAN KRİTİK HAMLE: 
+        // Viewer doğar doğmaz referansı hemen en tepede eşitliyoruz ki slider asenkron yüklere takılmasın.
+        viewerRef.current = viewer;
 
         // --- KATMAN SEÇENEKLERİ ---
         
-        // SEÇENEK A: LOKAL MAPSERVER KATMANI (İsteğe bağlı çevrimdışı kullanım için)
-        /*
-        const yerelMapServerKatmani = new WebMapServiceImageryProvider({
-          url: 'http://localhost:8080/',
-          layers: 'dunya_altlik',
+        // KATMAN A: ONLINE OPENSTREETMAP KATMANI (İnternet altlığı)
+        const canlıOsmAltlik = new OpenStreetMapImageryProvider({
+          url: 'https://a.tile.openstreetmap.org/',
+          maximumLevel: 19
+        });
+        viewer.imageryLayers.addImageryProvider(canlıOsmAltlik);
+
+        // KATMAN B: YEREL MAPSERVER WMS KATMANI (GeoTIFF + Vektörler)
+        const dresdenKatmanlari = new WebMapServiceImageryProvider({
+          url: `http://${mevcutIP}:8080/`, 
+          layers: 'dresden_raster,dresden_binalar,dresden_noktalar', 
           parameters: {
             map: '/etc/mapserver/harita.map',
-            transparent: false,
-            format: 'image/png',
-            styles: ''
+            transparent: true, 
+            format: 'image/png'
           },
           tilingScheme: new GeographicTilingScheme(),
           crs: 'EPSG:4326'
         });
-        viewer.imageryLayers.addImageryProvider(yerelMapServerKatmani);
-        */
-
-        // SEÇENEK B: ONLINE OPENSTREETMAP KATMANI (Şu an aktif olan detaylı altlık)
-        const onlineOsmKatmani = new UrlTemplateImageryProvider({
-          url: 'https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png',
-          subdomains: ['a', 'b', 'c']
-        });
-        viewer.imageryLayers.addImageryProvider(onlineOsmKatmani); 
-
-        // 3. Kamera Başlangıç Odağı (Türkiye / Ankara semaları)
+        
+        // OSM altlığıyla paftayı bir arada görmek için %60 opaklık (alpha)
+        (dresdenKatmanlari as any).alpha = 0.6;
+        viewer.imageryLayers.addImageryProvider(dresdenKatmanlari);
+        
+        // 3. Kamera Başlangıç Odağı (GeoTIFF Paftasının Merkezi - Bolu/Mihalıççık)
         viewer.camera.setView({
-          destination: Cartesian3.fromDegrees(32.85, 39.93, 200000.0), // 200 km yükseklik
+          destination: Cartesian3.fromDegrees(31.750000, 39.750000, 95000.0),
           orientation: {
-            heading: CesiumMath.toRadians(0.0),
-            pitch: CesiumMath.toRadians(-25.0), // Kamerayı 25 derece eğdik ki dağlar kabarsın
-            roll: 0.0
+              heading: CesiumMath.toRadians(0.0),   
+              pitch: CesiumMath.toRadians(-25.0),  // 25 derece eğik bakış (dağların kabarmasını görmek için)
+              roll: 0.0
           }
         });
 
-        // 4. FARE HAREKETLERİNİ DİNLEME (Koordinat ve Canlı Yükseklik Analizi)
+        // 4. FARE HAREKETLERİNİ DİNLEME (Tamir Edilmiş Garantili Koordinat Analizi)
         const handler = new ScreenSpaceEventHandler(viewer.scene.canvas);
-        
         handler.setInputAction((movement: any) => {
-          const ray = viewer.camera.getPickRay(movement.endPosition);
-          if (!ray) return;
-          
-          // Işının 3D arazi (terrain) yüzeyiyle kesiştiği noktayı yakalar
-          const cartesian = viewer.scene.globe.pick(ray, viewer.scene);
+          if (!viewer) return;
+
+          // Matematiksel elipsoid üzerinden kesin koordinat okuma (Offline modda 0'a düşmeyi engeller)
+          const cartesian = viewer.camera.pickEllipsoid(movement.endPosition, viewer.scene.globe.ellipsoid);
           
           if (cartesian) {
-            // Cartesian3 (X,Y,Z) koordinatını Coğrafi (Radyan) formata çevirir
             const cartographic = viewer.scene.globe.ellipsoid.cartesianToCartographic(cartesian);
-            
-            // Radyan değerlerini Derece cinsine dönüştürür (6 basamak hassasiyetle)
             const longitudeString = CesiumMath.toDegrees(cartographic.longitude).toFixed(6);
             const latitudeString = CesiumMath.toDegrees(cartographic.latitude).toFixed(6);
             
-            // O koordinattaki arazinin anlık yüksekliğini (metre) çeker
             const heightValue = viewer.scene.globe.getHeight(cartographic);
             const heightString = heightValue ? Math.round(heightValue).toLocaleString() : "0";
 
-            // Footer barı besleyen state'i günceller
-            setCoords({
-              lon: longitudeString,
-              lat: latitudeString,
-              height: heightString
+            setCoords({ 
+              lon: longitudeString, 
+              lat: latitudeString, 
+              height: heightString 
             });
           }
         }, ScreenSpaceEventType.MOUSE_MOVE);
 
-        // Handler nesnesini temizlik aşamasında yok edebilmek için viewer'a bağlıyoruz
         (viewer as any)._mouseHandler = handler;
-        // Viewer nesnesini yukarıdaki slider fonksiyonunun erişebilmesi için ref'e atıyoruz
-        viewerRef.current = viewer;
 
         return viewer;
       } catch (error) {
-        console.error("Cesium yüklenirken hata oluştu:", error);
+        console.error("Cesium yüklenirken genel bir hata oluştu:", error);
       }
     };
 
     const viewerPromise = initializeCesium();
 
-    // Cleanup: Bileşen ekrandan kalktığında hafızayı temizler ve kilitlenmeleri önler
+    // Cleanup
     return () => {
       viewerPromise.then(v => {
         if (v) {
@@ -160,7 +161,7 @@ function App() {
       {/* Cesium Harita Alanı */}
       <div ref={cesiumContainerRef} style={{ width: '100%', height: '100%' }} />
 
-      {/* --- ESTETİK DİNAMİK DİKEY ABARTI PANELİ (Sol Üst) --- */}
+      {/* --- ESTETİK DİNAMİK DİKEY ABARTI PANELİ (Sol Üst) --- */}
       <div style={{
         position: 'absolute',
         top: '20px',
@@ -218,16 +219,16 @@ function App() {
         gap: '20px',
         boxShadow: '0 4px 20px rgba(0, 0, 0, 0.4)',
         border: '1px solid rgba(255, 255, 255, 0.1)',
-        pointerEvents: 'none', // Tıklamaları arkadaki haritaya geçirir
+        pointerEvents: 'none', 
         zIndex: 1000
       }}>
         <div>
-          <span style={{ color: '#9ca3af', marginRight: '4px' }}>Latitude:</span>
+          <span style={{ color: '#9ca3af', marginRight: '4px' }}>Longitude:</span>
           <span style={{ fontFamily: 'monospace', fontSize: '13px' }}>{coords.lon}°</span>
         </div>
         <div style={{ width: '1px', backgroundColor: 'rgba(255, 255, 255, 0.2)', height: '14px', alignSelf: 'center' }} />
         <div>
-          <span style={{ color: '#9ca3af', marginRight: '4px' }}>Longitude:</span>
+          <span style={{ color: '#9ca3af', marginRight: '4px' }}>Latitude:</span>
           <span style={{ fontFamily: 'monospace', fontSize: '13px' }}>{coords.lat}°</span>
         </div>
         <div style={{ width: '1px', backgroundColor: 'rgba(255, 255, 255, 0.2)', height: '14px', alignSelf: 'center' }} />

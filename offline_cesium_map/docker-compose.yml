@@ -6,7 +6,7 @@ services:
     ports:
       - "8080:80"
     volumes:
-      - ./mapserver:/etc/mapserver
+      -   ./mapserver:/etc/mapserver
       - ./data:/data
     environment:
       - MS_MAPFILE=/etc/mapserver/harita.map

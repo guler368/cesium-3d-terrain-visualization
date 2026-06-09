@@ -1,18 +1,41 @@
 MAP
-  NAME "OFFLINE_WORLD_MAP"
+  NAME "DRESDEN_POINT_TEST"
   STATUS ON
-  SIZE 2048 1024
-  EXTENT -180 -90 180 90
+  SIZE 256 256
   UNITS DD
-  SHAPEPATH "/data"
-  IMAGECOLOR 255 255 255
+  SHAPEPATH "/etc/mapserver/" 
+  
+  # 🌍 Hem Türkiye'yi (Mihalıççık GeoTIFF) hem Almanya'yı (Dresden Vektörleri) kapsayan geniş sınır:
+  EXTENT 10.0 35.0 35.0 55.0
+
+  CONFIG "MS_ERRORFILE" "/etc/mapserver/mapserver.log"
+  DEBUG 5
+
+  # 🔴 Harita motoruna noktaları nasıl çizeceğini öğreten sembol bloğu
+  SYMBOL
+    NAME "daire"
+    TYPE ELLIPSE
+    FILLED TRUE
+    POINTS
+      1 1
+    END
+  END
+
+  OUTPUTFORMAT
+    NAME "png"
+    DRIVER "GDAL/PNG"
+    MIMETYPE "image/png"
+    IMAGEMODE RGBA
+    EXTENSION "png"
+    TRANSPARENT ON
+  END
 
   WEB
     METADATA
-      "wms_title"          "Offline World Base Map"
-      "wms_onlineresource" "http://localhost:8080/?map=/etc/mapserver/harita.map&"
-      "wms_srs"            "EPSG:4326 EPSG:3857"
-      "wms_enable_request" "*"
+      "wms_title"            "Dresden CBS Test Sunucusu"
+      "wms_onlineresource"   "http://localhost:8080/?"
+      "wms_srs"              "EPSG:4326"
+      "wms_enable_request"   "*"
     END
   END
 
@@ -20,16 +43,70 @@ MAP
     "init=epsg:4326"
   END
 
+  # =======================================================
+  # 📸 KATMAN 1: MİHALIÇÇIK TOPOGRAFİK PAFTASI (RASTER)
+  # =======================================================
   LAYER
-    NAME "dunya_altlik"
-    DATA "tiledNE2_med.tiff"  # Klasördeki uzantın .diff ise burayı tiledNE2_med.diff yap
+    NAME "dresden_raster"
+    STATUS DEFAULT
     TYPE RASTER
-    STATUS ON
+    DATA "/etc/mapserver/raster-data/g_i27.tif"
+    
     PROJECTION
       "init=epsg:4326"
     END
     METADATA
-      "wms_title" "Dunya Dogal Gorunum"
+      "wms_title" "dresden_raster"
+    END
+  END
+
+  # =======================================================
+  # 🏢 KATMAN 2: DRESDEN BİNALAR (Vektör Alan)
+  # =======================================================
+  LAYER
+    NAME "dresden_binalar"
+    STATUS DEFAULT
+    TYPE POLYGON
+    DATA "/etc/mapserver/shp-test/gis_osm_buildings_a_07_1.shp"
+    
+    PROJECTION
+      "init=epsg:4326"
+    END
+    METADATA
+      "wms_title" "dresden_binalar"
+    END
+    CLASS
+      NAME "Binalar"
+      STYLE
+        COLOR 155 89 182        # 💜 Şık bir Mor (RGB)
+        OUTLINECOLOR 44 62 80   # Kenarlıkları belirgin koyu gri
+        WIDTH 1
+      END
+    END
+  END
+
+  # =======================================================
+  # 📍 KATMAN 3: DRESDEN ULAŞIM NOKTALARI (Vektör Nokta)
+  # =======================================================
+  LAYER
+    NAME "dresden_noktalar"
+    STATUS DEFAULT
+    TYPE POINT
+    DATA "/etc/mapserver/shp-test/gis_osm_transport_07_1.shp"
+    
+    PROJECTION
+      "init=epsg:4326"
+    END
+    METADATA
+      "wms_title" "dresden_noktalar"
+    END
+    CLASS
+      NAME "Duraklar"
+      STYLE
+        SYMBOL "daire"        # Yukarıdaki sembolü bağladık
+        COLOR 255 0 0         # Fosforlu Kırmızı
+        SIZE 10               # Nokta büyüklüğü (piksel)
+      END
     END
   END
 END
