@@ -1,0 +1,25 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<kml xmlns="http://www.opengis.net/kml/2.2">
+
+  <GroundOverlay>
+
+    <name>What does the png say?</name>
+
+    <Icon>
+      <href>the_png_says.png</href>
+    </Icon>
+
+  	<LatLonBox>
+		<north>36.750000</north>
+		<south>36.450000</south>
+
+		<east>30.450000</east>
+		<west>30.150000</west>
+
+		<rotation>15</rotation>
+	</LatLonBox>
+
+
+  </GroundOverlay>
+
+</kml>
