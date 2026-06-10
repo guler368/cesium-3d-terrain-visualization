@@ -5,13 +5,13 @@ MAP
   UNITS DD
   SHAPEPATH "/etc/mapserver/" 
   
-  # 🌍 Hem Türkiye'yi (Mihalıççık GeoTIFF) hem Almanya'yı (Dresden Vektörleri) kapsayan geniş sınır:
+  # 🌍 Hem Türkiye'yi hem Almanya'yı kapsayan geniş sınır:
   EXTENT 10.0 35.0 35.0 55.0
 
   CONFIG "MS_ERRORFILE" "/etc/mapserver/mapserver.log"
   DEBUG 5
 
-  # 🔴 Harita motoruna noktaları nasıl çizeceğini öğreten sembol bloğu
+  # 🔴 Nokta çizim sembolü
   SYMBOL
     NAME "daire"
     TYPE ELLIPSE
@@ -47,7 +47,7 @@ MAP
   # 📸 KATMAN 1: MİHALIÇÇIK TOPOGRAFİK PAFTASI (RASTER)
   # =======================================================
   LAYER
-    NAME "dresden_raster"
+    NAME "tr_raster"
     STATUS DEFAULT
     TYPE RASTER
     DATA "/etc/mapserver/raster-data/g_i27.tif"
@@ -56,7 +56,7 @@ MAP
       "init=epsg:4326"
     END
     METADATA
-      "wms_title" "dresden_raster"
+      "wms_title" "tr_raster"
     END
   END
 
@@ -79,7 +79,7 @@ MAP
       NAME "Binalar"
       STYLE
         COLOR 155 89 182        # 💜 Şık bir Mor (RGB)
-        OUTLINECOLOR 44 62 80   # Kenarlıkları belirgin koyu gri
+        OUTLINECOLOR 44 62 80   # Kenarlık koyu gri
         WIDTH 1
       END
     END
@@ -103,10 +103,27 @@ MAP
     CLASS
       NAME "Duraklar"
       STYLE
-        SYMBOL "daire"        # Yukarıdaki sembolü bağladık
+        SYMBOL "daire"        # Yukarıdaki sembol bağlandı
         COLOR 255 0 0         # Fosforlu Kırmızı
-        SIZE 10               # Nokta büyüklüğü (piksel)
+        SIZE 10               # Piksel boyutu
       END
     END
   END
-END
+
+  LAYER
+    NAME "sahil_ortofoto"
+    STATUS ON
+    TYPE RASTER
+    DATA "/etc/mapserver/sahil_kesin_4326.tif" # 🟢 Yeni ürettiğimiz garantili dosya
+
+    PROJECTION
+      "init=epsg:4326"
+    END
+    METADATA
+      "wms_title"          "Sahil Ortofoto Katmani"
+      "wms_srs"            "EPSG:4326"
+      "wms_enable_request" "*"
+    END
+  END
+
+END # MAP bloğunun tek ve nihai kapanışı
