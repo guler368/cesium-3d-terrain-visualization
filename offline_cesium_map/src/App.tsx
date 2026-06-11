@@ -10,9 +10,9 @@ import {
   OpenStreetMapImageryProvider,
   KmlDataSource,
   ImageryLayer,
-  Math as CesiumMath, // 🟢 İsim çakışmasını önlemek için 'Math' objesini 'CesiumMath' olarak takma adla alıyoruz
+  Math as CesiumMath, 
   WebMapServiceImageryProvider,
-  Cartographic
+  Cartographic,
 } from 'cesium';
 import 'cesium/Source/Widgets/widgets.css';
 
@@ -36,10 +36,25 @@ function App() {
     Ion.defaultAccessToken = ''; 
     const mevcutIP = window.location.hostname;
 
+    // Local array to track the two clicks in memory without triggering re-renders
+    const tiklananNoktalar: Cartographic[] = [];
+
+    // Linear interpolation according to lat/lon then we will send these points to .terrain for height query
+    const lerp = (p1: Cartographic, p2: Cartographic, noktaSayisi: number = 20): Cartographic[] => {
+      const noktalar: Cartographic[] = [];
+      for (let i = 0; i < noktaSayisi; i++) {
+        const t = i / (noktaSayisi - 1); 
+        const araLon = p1.longitude + (p2.longitude - p1.longitude) * t;
+        const araLat = p1.latitude + (p2.latitude - p1.latitude) * t;
+        noktalar.push(new Cartographic(araLon, araLat, 0));
+      }
+      return noktalar;
+    };
+
     const initializeCesium = async () => {
       try {
         // =======================================================
-        // ⛰️ KATMAN 1: YEREL ARAZİ (TERRAIN) KATMANI
+        // ⛰️ LAYER 1: LOCAL TERRAIN LAYER
         // =======================================================
         let yerelTerrain;
         try {
@@ -47,13 +62,13 @@ function App() {
             requestVertexNormals: true,
             tilingScheme: new GeographicTilingScheme()
           } as any);
-          console.log("⛰️ Yerel Arazi (terrain_set) başarıyla hafızaya alındı!");
+          console.log("⛰️ Local terrain provider successfully loaded into memory!");
         } catch (e) {
-          console.warn("Yerel arazi yüklenemedi, düz dünya modeliyle devam ediliyor.", e);
+          console.warn("Local terrain provider failed to load, falling back to ellipsoid model.", e);
         }
 
         // =======================================================
-        // 🌐 CESIUM VIEWER BAŞLATMA
+        // 🌐 CESIUM VIEWER INITIALIZATION
         // =======================================================
         const viewer = new Viewer(cesiumContainerRef.current!, {
           baseLayerPicker: false,
@@ -63,7 +78,7 @@ function App() {
           navigationHelpButton: false,
           animation: false,
           timeline: false,
-          creditContainer: document.createElement('div'), 
+          infoBox: false,
           baseLayer: new ImageryLayer(
             new OpenStreetMapImageryProvider({
               url : 'https://a.tile.openstreetmap.org/',
@@ -76,10 +91,12 @@ function App() {
         viewer.scene.verticalExaggerationRelativeHeight = 0.0;
 
         viewerRef.current = viewer;
+
+        viewer.screenSpaceEventHandler.removeInputAction(ScreenSpaceEventType.LEFT_CLICK);
         
 
         // =======================================================
-        // 🏢 KATMAN 3: YEREL MAPSERVER WMS KATMANI
+        // 🏢 LAYER 3: LOCAL MAPSERVER WMS LAYER
         // =======================================================
         const dresdenKatmanlari = new WebMapServiceImageryProvider({
           url: `http://${mevcutIP}:8080/`, 
@@ -97,7 +114,7 @@ function App() {
         viewer.imageryLayers.addImageryProvider(dresdenKatmanlari);
 
         // =======================================================
-        // 🗺️ KATMAN 4: KML GROUND OVERLAY ENTEGRASYONU
+        // 🗺️ LAYER 4: KML GROUND OVERLAY INTEGRATION
         // =======================================================
         try {
           const kmlKatmani = await KmlDataSource.load('/kml/kml-test.kml', {
@@ -105,12 +122,14 @@ function App() {
             canvas: viewer.scene.canvas
           });
           viewer.dataSources.add(kmlKatmani);
-          console.log("KML ve PNG haritaya başarıyla enjekte edildi.");
+          console.log("KML and PNG ground overlay successfully injected into map.");
         } catch (kmlError) {
-          console.error("KML dosyası yüklenirken bir sorun çıktı:", kmlError);
+          console.error("Error occurred while loading KML file:", kmlError);
         }
 
-        // mouse activation
+        // =======================================================
+        // 🎛️ MOUSE MOVEMENTS (MOUSE_MOVE) - HOVER STATE
+        // =======================================================
         const handler = new ScreenSpaceEventHandler(viewer.scene.canvas);
 
         handler.setInputAction(async (movement: any) => {
@@ -133,8 +152,6 @@ function App() {
               
               if (updatedPositions && updatedPositions[0] && updatedPositions[0].height !== undefined) {
                 const rawHeight = updatedPositions[0].height;
-                
-                // 🟢 PROFESYONEL FİLTRE: Türkiye dışındaki tüm negatifleri ve okyanus pürüzlerini 0'a kilitliyoruz
                 heightString = rawHeight > 0 ? Math.round(rawHeight).toLocaleString() : "0";
               } else {
                 heightString = "0"; 
@@ -143,11 +160,8 @@ function App() {
               heightString = "0"; 
             }
 
-            // 📺 Arayüz elementlerini güvenle güncelle
             const heightElement = document.getElementById("footer-height-val");
-            if (heightElement) {
-              heightElement.innerText = `${heightString} m`;
-            }
+            if (heightElement) heightElement.innerText = `${heightString} m`;
             
             const latElement = document.getElementById("footer-lat-val");
             if (latElement) latElement.innerText = `${latitudeString}°`;
@@ -157,21 +171,96 @@ function App() {
           }
         }, ScreenSpaceEventType.MOUSE_MOVE);
 
-      (viewer as any)._mouseHandler = handler;
+        // Debugging / Performance Measurement
+        console.log("🛠️ DEBUG: Initializing LEFT_CLICK handler...");
 
-      // camera.setView() çalışmıyor şuan
-      /* viewer.camera.setView({
-        destination: Cesium.Cartesian3.fromDegrees(30.300000, 36.600000, 28000.0), // Antalya Kemer Dağları Üstü
-        orientation: {
-            heading: CesiumMath.toRadians(0.0),   
-            pitch: CesiumMath.toRadians(-90.0),  
-            roll: 0.0
-        }
-      }); */
+        handler.setInputAction(async (click: any) => {
+          // 🛑 STEP 1: Event captured
+          console.log("🔍 [STEP 1] Map click detected! Screen coordinates (x, y):", click.position);
 
-      return viewer;
+          const ray = viewer.camera.getPickRay(click.position);
+          if (!ray) {
+            console.log("❌ [STEP 1.5] GetPickRay failed, unable to cast ray.");
+            return;
+          }
+
+          const cartesian = viewer.scene.globe.pick(ray, viewer.scene);
+
+          // 🛑 STEP 2: Globe intersection check
+          if (!Cesium.defined(cartesian)) {
+            console.log("❌ [STEP 2] Ray cast into outer space, no globe intersection found.");
+            return;
+          }
+          console.log("✅ [STEP 2] Ray successfully intersected with the globe (Cartesian3 coordinates generated).");
+
+          const cartographic = Cartographic.fromCartesian(cartesian);
+          const clickLon = CesiumMath.toDegrees(cartographic.longitude);
+          const clickLat = CesiumMath.toDegrees(cartographic.latitude);
+          console.log(`🌍 [STEP 2.5] Transformed Coordinates -> Lon: ${clickLon.toFixed(4)}, Lat: ${clickLat.toFixed(4)}`);
+
+          // 🛑 STEP 3: Geographic bounding box constraint (Turkey bounds filter)
+          console.log("⏳ [STEP 3] Validating geographic bounds...");
+          if (clickLon < 26.0 || clickLon > 45.0 || clickLat < 36.0 || clickLat > 42.0) {
+            console.warn(`❌ [STEP 3 FAILED] Out of bounds! Click position is outside Turkey. Lon: ${clickLon.toFixed(2)}, Lat: ${clickLat.toFixed(2)}`);
+            return; 
+          }
+          console.log("✅ [STEP 3 PASSED] Geographic bounds validated. Position is within Turkey.");
+          
+          // 🛑 STEP 4: Memory management for the polyline points
+          if (tiklananNoktalar.length >= 2) {
+            tiklananNoktalar.length = 0; 
+            console.log("🧹 [STEP 4] Flushed previous points. Starting a new profile path selection.");
+          }
+
+          tiklananNoktalar.push(cartographic);
+          const pNum = tiklananNoktalar.length;
+          console.log(`📍 [STEP 4] Point ${pNum} stored in memory. (Current queue size: ${pNum}/2)`);
+
+          // 🛑 STEP 5: Profile analysis trigger conditions
+          if (tiklananNoktalar.length === 2) {
+            //console.log("🚀 [STEP 5] Profile path completed! Initiating 20-point asynchronous .terrain analysis query...");
+            
+            const p1 = tiklananNoktalar[0];
+            const p2 = tiklananNoktalar[1];
+            
+            const yirmiNokta = lerp(p1, p2, 20);
+            //console.log("📐 [STEP 5.1] Generated 20 interpolated coordinates along the linear path.");
+
+            const t0 = performance.now();
+
+            try {
+              console.log("⏳ [STEP 5.2] Request dispatched to sampleTerrainMostDetailed. Waiting for promise resolution...");
+              const sonuclar = await Cesium.sampleTerrainMostDetailed( // barycentric interpolation
+                viewer.terrainProvider, 
+                yirmiNokta
+              );
+              //console.log("✅ [STEP 5.3] Asynchronous response resolved from local .terrain datasets!");
+
+              const t1 = performance.now();
+              const gecenSure = t1 - t0;
+              const yukseklikler = sonuclar.map(n => n.height !== undefined ? Math.round(n.height) : 0);
+
+              console.log(`==================================================`);
+              console.log(`🏆 CLIENT-SIDE (EDGE COMPUTING) PROFILE METRICS`);
+              console.log(`⏱️ Total Execution Time: ${gecenSure.toFixed(2)} ms`);
+              console.log(`📊 Average Latency per Sample Point: ${(gecenSure / 20).toFixed(2)} ms`);
+              console.log(`🗻 Interpolated Elevation Dataset (20 Points - Meters):`);
+              console.log(JSON.stringify(yukseklikler));
+              console.log(`==================================================`);
+
+            } catch (err) {
+              //console.error("[STEP 5 ERROR] sampleTerrainMostDetailed execution crashed:", err);
+            }
+          } else {
+            //console.log("[STEP 5 SKIPPED] Stored point 1. Awaiting second point to run profile analysis.");
+          }
+        }, ScreenSpaceEventType.LEFT_CLICK);
+
+        console.log("🛠️ DEBUG: LEFT_CLICK handler successfully registered.");
+
+        return viewer;
       } catch (error) {
-        console.error("Cesium yüklenirken genel bir hata oluştu:", error);
+        console.error("Fatal error occurred during Cesium initialization:", error);
       }
     };
 
