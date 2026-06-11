@@ -1,0 +1,28 @@
+{
+  "tilejson": "2.1.0",
+  "name": "DTED1",
+  "description": "Programmatically Repaired Global Terrain Set with Level 14",
+  "version": "1.0.0",
+  "format": "quantized-mesh-1.0",
+  "attribution": "",
+  "schema": "tms",
+  "tiles": [ "{z}/{x}/{y}.terrain" ],
+  "projection": "EPSG:4326",
+  "bounds": [ -180.00, -90.00, 180.00, 90.00 ],
+  "available": [
+    [ { "startX": 0, "startY": 0, "endX": 1, "endY": 0 } ],
+    [ { "startX": 2, "startY": 1, "endX": 2, "endY": 1 } ],
+    [ { "startX": 4, "startY": 2, "endX": 5, "endY": 2 } ],
+    [ { "startX": 9, "startY": 5, "endX": 10, "endY": 5 } ],
+    [ { "startX": 18, "startY": 11, "endX": 20, "endY": 11 } ],
+    [ { "startX": 36, "startY": 22, "endX": 40, "endY": 23 } ],
+    [ { "startX": 73, "startY": 44, "endX": 80, "endY": 47 } ],
+    [ { "startX": 146, "startY": 88, "endX": 160, "endY": 95 } ],
+    [ { "startX": 292, "startY": 176, "endX": 320, "endY": 190 } ],
+    [ { "startX": 585, "startY": 352, "endX": 640, "endY": 381 } ],
+    [ { "startX": 1171, "startY": 705, "endX": 1280, "endY": 762 } ],
+    [ { "startX": 2343, "startY": 1410, "endX": 2560, "endY": 1524 } ],
+    [ { "startX": 4687, "startY": 2821, "endX": 5120, "endY": 3048 } ],
+    [ { "startX": 9374, "startY": 5642, "endX": 10240, "endY": 6096 } ]
+  ]
+}

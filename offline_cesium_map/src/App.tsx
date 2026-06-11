@@ -1,16 +1,18 @@
 import { useEffect, useRef, useState } from 'react';
+import * as Cesium from 'cesium';
 import { 
   Viewer, 
-  WebMapServiceImageryProvider, 
   GeographicTilingScheme,       
   CesiumTerrainProvider, 
-  Cartesian3,                   
-  Math as CesiumMath, 
   Ion,
   ScreenSpaceEventHandler,
   ScreenSpaceEventType,
   OpenStreetMapImageryProvider,
-  KmlDataSource
+  KmlDataSource,
+  ImageryLayer,
+  Math as CesiumMath, // 🟢 İsim çakışmasını önlemek için 'Math' objesini 'CesiumMath' olarak takma adla alıyoruz
+  WebMapServiceImageryProvider,
+  Cartographic
 } from 'cesium';
 import 'cesium/Source/Widgets/widgets.css';
 
@@ -18,7 +20,6 @@ function App() {
   const cesiumContainerRef = useRef<HTMLDivElement>(null);
   const viewerRef = useRef<Viewer | null>(null);
   
-  const [coords, setCoords] = useState({ lon: '0.000000', lat: '0.000000', height: '0' });
   const [exaggeration, setExaggeration] = useState(2.0); 
 
   const handleExaggerationChange = (e: React.ChangeEvent<HTMLInputElement>) => {
@@ -43,10 +44,12 @@ function App() {
         let yerelTerrain;
         try {
           yerelTerrain = await CesiumTerrainProvider.fromUrl(`http://${mevcutIP}/terrain/`, {
-            requestVertexNormals: true 
-          });
+            requestVertexNormals: true,
+            tilingScheme: new GeographicTilingScheme()
+          } as any);
+          console.log("⛰️ Yerel Arazi (terrain_set) başarıyla hafızaya alındı!");
         } catch (e) {
-          console.warn("Yerel arazi yüklenemedi, düz dünya modeliyle devam ediliyor.");
+          console.warn("Yerel arazi yüklenemedi, düz dünya modeliyle devam ediliyor.", e);
         }
 
         // =======================================================
@@ -61,47 +64,42 @@ function App() {
           animation: false,
           timeline: false,
           creditContainer: document.createElement('div'), 
-          baseLayer: false, 
+          baseLayer: new ImageryLayer(
+            new OpenStreetMapImageryProvider({
+              url : 'https://a.tile.openstreetmap.org/',
+            })
+          ), 
           terrainProvider: yerelTerrain 
         });
 
         viewer.scene.verticalExaggeration = exaggeration; 
         viewer.scene.verticalExaggerationRelativeHeight = 0.0;
 
-        // Slider'ın takılmaması için referansı anında eşitliyoruz
         viewerRef.current = viewer;
+        
 
         // =======================================================
-        // 🗺️ KATMAN 2: ONLINE OSM ALTLIĞI
-        // =======================================================
-        const canlıOsmAltlik = new OpenStreetMapImageryProvider({
-          url: 'https://a.tile.openstreetmap.org/',
-          maximumLevel: 19
-        });
-        viewer.imageryLayers.addImageryProvider(canlıOsmAltlik);
-
-        // =======================================================
-        // 🏢 KATMAN 3: YEREL MAPSERVER WMS KATMANI (Bolu/Mihalıççık)
+        // 🏢 KATMAN 3: YEREL MAPSERVER WMS KATMANI
         // =======================================================
         const dresdenKatmanlari = new WebMapServiceImageryProvider({
           url: `http://${mevcutIP}:8080/`, 
-          layers: 'dresden_raster,dresden_binalar,dresden_noktalar', 
+          layers: 'tr_raster,dresden_binalar,dresden_noktalar,sahil_ortofoto', 
           parameters: {
             map: '/etc/mapserver/harita.map',
             transparent: true, 
             format: 'image/png'
           },
           tilingScheme: new GeographicTilingScheme(),
-          crs: 'EPSG:4326'
+          crs: 'EPSG:4326',
         });
-        (dresdenKatmanlari as any).alpha = 0.6;
+        
+        (dresdenKatmanlari as any).alpha = 1.0;
         viewer.imageryLayers.addImageryProvider(dresdenKatmanlari);
 
         // =======================================================
-        // 🗺️ KATMAN 4: KML GROUND OVERLAY ENTEGRASYONU (Yeni Eklenen)
+        // 🗺️ KATMAN 4: KML GROUND OVERLAY ENTEGRASYONU
         // =======================================================
         try {
-          // public/kml/kml-test.kml dosyasını asenkron şarj ediyoruz
           const kmlKatmani = await KmlDataSource.load('/kml/kml-test.kml', {
             camera: viewer.camera,
             canvas: viewer.scene.canvas
@@ -111,49 +109,67 @@ function App() {
         } catch (kmlError) {
           console.error("KML dosyası yüklenirken bir sorun çıktı:", kmlError);
         }
-        
-        // =======================================================
-        // 🚀 KAMERAYI KML BÖLGESİNE (İSVİÇRE ALPLERİ) KİLİTLEME
-        // =======================================================
-        // KML sınırları: 8.43 - 9.14 Doğu / 46.65 - 46.77 Kuzey arasındaydı.
-        // Tam ortalamak için kamerayı 8.78 Doğu, 46.71 Kuzey coğrafyasına dikiyoruz.
-        viewer.camera.setView({
-          // Antalya Kemer dağlarının tam üstü (30.30 Doğu, 36.60 Kuzey)
-          destination: Cartesian3.fromDegrees(30.300000, 36.600000, 28000.0), // 28 km yukarısı
-          orientation: {
-              heading: CesiumMath.toRadians(0.0),   // Tam Kuzey bakış
-              pitch: CesiumMath.toRadians(-30.0),  // Dağların şahlanışını görebilmek için -30 derece eğik açı
-              roll: 0.0
-          }
-        });
 
-        // =======================================================
-        // 🎛️ FARE HAREKETLERİ VE COĞRAFİ ANALİZ
-        // =======================================================
+        // mouse activation
         const handler = new ScreenSpaceEventHandler(viewer.scene.canvas);
-        handler.setInputAction((movement: any) => {
-          if (!viewer) return;
 
-          const cartesian = viewer.camera.pickEllipsoid(movement.endPosition, viewer.scene.globe.ellipsoid);
-          if (cartesian) {
-            const cartographic = viewer.scene.globe.ellipsoid.cartesianToCartographic(cartesian);
+        handler.setInputAction(async (movement: any) => {
+          const ray = viewer.camera.getPickRay(movement.endPosition);
+          const cartesian = viewer.scene.globe.pick(ray!, viewer.scene);
+
+          if (Cesium.defined(cartesian)) {
+            const cartographic = Cartographic.fromCartesian(cartesian);
+            
             const longitudeString = CesiumMath.toDegrees(cartographic.longitude).toFixed(6);
             const latitudeString = CesiumMath.toDegrees(cartographic.latitude).toFixed(6);
             
-            const heightValue = viewer.scene.globe.getHeight(cartographic);
-            const heightString = heightValue ? Math.round(heightValue).toLocaleString() : "0";
+            let heightString = "0"; 
 
-            setCoords({ 
-              lon: longitudeString, 
-              lat: latitudeString, 
-              height: heightString 
-            });
+            try {
+              const updatedPositions = await Cesium.sampleTerrainMostDetailed(
+                viewer.terrainProvider, 
+                [cartographic]
+              );
+              
+              if (updatedPositions && updatedPositions[0] && updatedPositions[0].height !== undefined) {
+                const rawHeight = updatedPositions[0].height;
+                
+                // 🟢 PROFESYONEL FİLTRE: Türkiye dışındaki tüm negatifleri ve okyanus pürüzlerini 0'a kilitliyoruz
+                heightString = rawHeight > 0 ? Math.round(rawHeight).toLocaleString() : "0";
+              } else {
+                heightString = "0"; 
+              }
+            } catch (error) {
+              heightString = "0"; 
+            }
+
+            // 📺 Arayüz elementlerini güvenle güncelle
+            const heightElement = document.getElementById("footer-height-val");
+            if (heightElement) {
+              heightElement.innerText = `${heightString} m`;
+            }
+            
+            const latElement = document.getElementById("footer-lat-val");
+            if (latElement) latElement.innerText = `${latitudeString}°`;
+            
+            const lonElement = document.getElementById("footer-lon-val");
+            if (lonElement) lonElement.innerText = `${longitudeString}°`;
           }
         }, ScreenSpaceEventType.MOUSE_MOVE);
 
-        (viewer as any)._mouseHandler = handler;
+      (viewer as any)._mouseHandler = handler;
 
-        return viewer;
+      // camera.setView() çalışmıyor şuan
+      /* viewer.camera.setView({
+        destination: Cesium.Cartesian3.fromDegrees(30.300000, 36.600000, 28000.0), // Antalya Kemer Dağları Üstü
+        orientation: {
+            heading: CesiumMath.toRadians(0.0),   
+            pitch: CesiumMath.toRadians(-90.0),  
+            roll: 0.0
+        }
+      }); */
+
+      return viewer;
       } catch (error) {
         console.error("Cesium yüklenirken genel bir hata oluştu:", error);
       }
@@ -174,10 +190,8 @@ function App() {
   return (
     <div style={{ width: '100%', height: '100vh', position: 'relative', overflow: 'hidden' }}>
       
-      {/* Harita Sahnesi */}
       <div ref={cesiumContainerRef} id="cesiumContainer" style={{ width: '100%', height: '100%' }} />
 
-      {/* Dikey Abartı (Slider) Paneli */}
       <div style={{ 
         position: 'absolute', top: '20px', left: '20px', backgroundColor: 'rgba(23, 23, 23, 0.9)', 
         color: '#fff', padding: '15px', borderRadius: '10px', zIndex: 1000, width: '220px',
@@ -199,7 +213,6 @@ function App() {
         />
       </div>
 
-      {/* CBS Koordinat Footer Bar */}
       <div style={{ 
         position: 'absolute', bottom: '15px', left: '50%', transform: 'translateX(-50%)', 
         backgroundColor: 'rgba(23, 23, 23, 0.9)', color: '#fff', padding: '8px 20px', 
@@ -207,11 +220,11 @@ function App() {
         boxShadow: '0 4px 20px rgba(0,0,0,0.3)', border: '1px solid rgba(255,255,255,0.1)',
         fontFamily: 'sans-serif', pointerEvents: 'none'
       }}>
-        <div><span style={{ color: '#9ca3af' }}>Longitude:</span> <span style={{ fontFamily: 'monospace' }}>{coords.lon}°</span></div>
+        <div><span style={{ color: '#9ca3af' }}>Longitude:</span> <span id="footer-lon-val" style={{ fontFamily: 'monospace' }}>0.000000°</span></div>
         <div style={{ width: '1px', backgroundColor: 'rgba(255,255,255,0.2)', height: '14px', alignSelf: 'center' }} />
-        <div><span style={{ color: '#9ca3af' }}>Latitude:</span> <span style={{ fontFamily: 'monospace' }}>{coords.lat}°</span></div>
+        <div><span style={{ color: '#9ca3af' }}>Latitude:</span> <span id="footer-lat-val" style={{ fontFamily: 'monospace' }}>0.000000°</span></div>
         <div style={{ width: '1px', backgroundColor: 'rgba(255,255,255,0.2)', height: '14px', alignSelf: 'center' }} />
-        <div><span style={{ color: '#3b82f6', fontWeight: 'bold' }}>HEIGHT:</span> <span style={{ fontFamily: 'monospace', color: '#60a5fa' }}>{coords.height} m</span></div>
+        <div><span style={{ color: '#3b82f6', fontWeight: 'bold' }}>HEIGHT:</span> <span id="footer-height-val" style={{ fontFamily: 'monospace', color: '#60a5fa' }}>0 m</span></div>
       </div>
 
     </div>

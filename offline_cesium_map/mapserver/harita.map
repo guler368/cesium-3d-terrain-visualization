@@ -6,12 +6,12 @@ MAP
   SHAPEPATH "/etc/mapserver/" 
   
   # 🌍 Hem Türkiye'yi hem Almanya'yı kapsayan geniş sınır:
-  EXTENT 10.0 35.0 35.0 55.0
+  EXTENT -180.0 -90.0 180.0 90.0
 
   CONFIG "MS_ERRORFILE" "/etc/mapserver/mapserver.log"
   DEBUG 5
 
-  # 🔴 Nokta çizim sembolü
+
   SYMBOL
     NAME "daire"
     TYPE ELLIPSE
@@ -114,7 +114,7 @@ MAP
     NAME "sahil_ortofoto"
     STATUS ON
     TYPE RASTER
-    DATA "/etc/mapserver/sahil_kesin_4326.tif" # 🟢 Yeni ürettiğimiz garantili dosya
+    DATA "/etc/mapserver/sahil_kesin_4326.tif"
 
     PROJECTION
       "init=epsg:4326"
