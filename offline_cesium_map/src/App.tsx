@@ -13,6 +13,7 @@ import {
   Math as CesiumMath, 
   WebMapServiceImageryProvider,
   Cartographic,
+  Cartesian3
 } from 'cesium';
 import 'cesium/Source/Widgets/widgets.css';
 
@@ -34,21 +35,30 @@ function App() {
     if (!cesiumContainerRef.current) return;
 
     Ion.defaultAccessToken = ''; 
-    const mevcutIP = window.location.hostname;
+    const currentIP = window.location.hostname;
 
     // Local array to track the two clicks in memory without triggering re-renders
-    const tiklananNoktalar: Cartographic[] = [];
+    const clickedPoints: Cartographic[] = [];
+
+    // Local array to keep track of drawing entities (points and polylines) for clean-up
+    const drawnEntitiesList: Cesium.Entity[] = [];
 
     // Linear interpolation according to lat/lon then we will send these points to .terrain for height query
-    const lerp = (p1: Cartographic, p2: Cartographic, noktaSayisi: number = 20): Cartographic[] => {
-      const noktalar: Cartographic[] = [];
-      for (let i = 0; i < noktaSayisi; i++) {
-        const t = i / (noktaSayisi - 1); 
-        const araLon = p1.longitude + (p2.longitude - p1.longitude) * t;
-        const araLat = p1.latitude + (p2.latitude - p1.latitude) * t;
-        noktalar.push(new Cartographic(araLon, araLat, 0));
+    const lerp = (p1: Cartographic, p2: Cartographic, pointCount: number = 20): Cartographic[] => {
+      const points: Cartographic[] = [];
+      for (let i = 0; i < pointCount; i++) {
+        const t = i / (pointCount - 1); 
+        const intermediateLon = p1.longitude + (p2.longitude - p1.longitude) * t;
+        const intermediateLat = p1.latitude + (p2.latitude - p1.latitude) * t;
+        points.push(new Cartographic(intermediateLon, intermediateLat, 0));
       }
-      return noktalar;
+      return points;
+    };
+
+    // Helper function to flush previous visual path entities from the globe
+    const clearOldDrawings = (viewerInstance: Viewer) => {
+      drawnEntitiesList.forEach(entity => viewerInstance.entities.remove(entity));
+      drawnEntitiesList.length = 0;
     };
 
     const initializeCesium = async () => {
@@ -56,9 +66,10 @@ function App() {
         // =======================================================
         // ⛰️ LAYER 1: LOCAL TERRAIN LAYER
         // =======================================================
-        let yerelTerrain;
+        let localTerrainProvider;
         try {
-          yerelTerrain = await CesiumTerrainProvider.fromUrl(`http://${mevcutIP}/terrain/`, {
+          // Nginx altındaki /terrain/ klasör yolumuz aynı kalıyor çünkü Docker mountu bunu /data/terrain altına eşitledi
+          localTerrainProvider = await CesiumTerrainProvider.fromUrl(`http://${currentIP}/terrain/`, {
             requestVertexNormals: true,
             tilingScheme: new GeographicTilingScheme()
           } as any);
@@ -84,7 +95,7 @@ function App() {
               url : 'https://a.tile.openstreetmap.org/',
             })
           ), 
-          terrainProvider: yerelTerrain 
+          terrainProvider: localTerrainProvider 
         });
 
         viewer.scene.verticalExaggeration = exaggeration; 
@@ -98,11 +109,12 @@ function App() {
         // =======================================================
         // 🏢 LAYER 3: LOCAL MAPSERVER WMS LAYER
         // =======================================================
-        const dresdenKatmanlari = new WebMapServiceImageryProvider({
-          url: `http://${mevcutIP}:8080/`, 
+        const dresdenWmsLayers = new WebMapServiceImageryProvider({
+          url: `http://${currentIP}:8080/`, 
           layers: 'tr_raster,dresden_binalar,dresden_noktalar,sahil_ortofoto', 
           parameters: {
-            map: '/etc/mapserver/harita.map',
+            // ✅ DEĞİŞEN KISIM: harita.map dosyasının yeni konteyner içi mutlak adresini verdik!
+            map: '/etc/mapserver/volumes/mapfiles/harita.map',
             transparent: true, 
             format: 'image/png'
           },
@@ -110,18 +122,18 @@ function App() {
           crs: 'EPSG:4326',
         });
         
-        (dresdenKatmanlari as any).alpha = 1.0;
-        viewer.imageryLayers.addImageryProvider(dresdenKatmanlari);
+        (dresdenWmsLayers as any).alpha = 1.0;
+        viewer.imageryLayers.addImageryProvider(dresdenWmsLayers);
 
         // =======================================================
         // 🗺️ LAYER 4: KML GROUND OVERLAY INTEGRATION
         // =======================================================
         try {
-          const kmlKatmani = await KmlDataSource.load('/kml/kml-test.kml', {
+          const kmlLayer = await KmlDataSource.load('/kml/kml-test.kml', {
             camera: viewer.camera,
             canvas: viewer.scene.canvas
           });
-          viewer.dataSources.add(kmlKatmani);
+          viewer.dataSources.add(kmlLayer);
           console.log("KML and PNG ground overlay successfully injected into map.");
         } catch (kmlError) {
           console.error("Error occurred while loading KML file:", kmlError);
@@ -207,52 +219,81 @@ function App() {
           console.log("✅ [STEP 3 PASSED] Geographic bounds validated. Position is within Turkey.");
           
           // 🛑 STEP 4: Memory management for the polyline points
-          if (tiklananNoktalar.length >= 2) {
-            tiklananNoktalar.length = 0; 
+          if (clickedPoints.length >= 2) {
+            clickedPoints.length = 0; 
             console.log("🧹 [STEP 4] Flushed previous points. Starting a new profile path selection.");
+            // Wipe out the old polyline and point entities from the globe scene
+            clearOldDrawings(viewer);
           }
 
-          tiklananNoktalar.push(cartographic);
-          const pNum = tiklananNoktalar.length;
-          console.log(`📍 [STEP 4] Point ${pNum} stored in memory. (Current queue size: ${pNum}/2)`);
+          clickedPoints.push(cartographic);
+          const pointNumber = clickedPoints.length;
+          console.log(`📍 [STEP 4] Point ${pointNumber} stored in memory. (Current queue size: ${pointNumber}/2)`);
+
+          // Draw the clicked pinpoint marker onto the globe surface
+          const pinpointEntity = viewer.entities.add({
+            position: Cartesian3.fromRadians(cartographic.longitude, cartographic.latitude, cartographic.height + 10),
+            point: {
+              pixelSize: 10,
+              color: Cesium.Color.RED, 
+              outlineColor: Cesium.Color.WHITE,
+              outlineWidth: 2,
+              disableDepthTestDistance: Number.POSITIVE_INFINITY 
+            }
+          });
+          drawnEntitiesList.push(pinpointEntity);
 
           // 🛑 STEP 5: Profile analysis trigger conditions
-          if (tiklananNoktalar.length === 2) {
-            //console.log("🚀 [STEP 5] Profile path completed! Initiating 20-point asynchronous .terrain analysis query...");
+          if (clickedPoints.length === 2) {
+            console.log("🚀 [STEP 5] Profile path completed! Initiating 20-point asynchronous .terrain analysis query...");
             
-            const p1 = tiklananNoktalar[0];
-            const p2 = tiklananNoktalar[1];
+            const p1 = clickedPoints[0];
+            const p2 = clickedPoints[1];
             
-            const yirmiNokta = lerp(p1, p2, 20);
-            //console.log("📐 [STEP 5.1] Generated 20 interpolated coordinates along the linear path.");
+            // Draw a vibrant line directly connecting the two clicked samples
+            const polylineEntity = viewer.entities.add({
+              polyline: {
+                positions: [
+                  Cartesian3.fromRadians(p1.longitude, p1.latitude, p1.height + 10),
+                  Cartesian3.fromRadians(p2.longitude, p2.latitude, p2.height + 10)
+                ],
+                width: 4,
+                material: Cesium.Color.RED, 
+                clampToGround: true // Ensures the polyline hugs mountains, ridges, and valleys smoothly
+              }
+            });
+            drawnEntitiesList.push(polylineEntity);
 
-            const t0 = performance.now();
+            const interpolatedPoints = lerp(p1, p2, 20);
+            console.log("📐 [STEP 5.1] Generated 20 interpolated coordinates along the linear path.");
+
+            const startTime = performance.now();
 
             try {
               console.log("⏳ [STEP 5.2] Request dispatched to sampleTerrainMostDetailed. Waiting for promise resolution...");
-              const sonuclar = await Cesium.sampleTerrainMostDetailed( // barycentric interpolation
+              const elevationResults = await Cesium.sampleTerrainMostDetailed(
                 viewer.terrainProvider, 
-                yirmiNokta
+                interpolatedPoints
               );
-              //console.log("✅ [STEP 5.3] Asynchronous response resolved from local .terrain datasets!");
+              console.log("✅ [STEP 5.3] Asynchronous response resolved from local .terrain datasets!");
 
-              const t1 = performance.now();
-              const gecenSure = t1 - t0;
-              const yukseklikler = sonuclar.map(n => n.height !== undefined ? Math.round(n.height) : 0);
+              const endTime = performance.now();
+              const executionTime = endTime - startTime;
+              const extractedHeights = elevationResults.map(n => n.height !== undefined ? Math.round(n.height) : 0);
 
               console.log(`==================================================`);
               console.log(`🏆 CLIENT-SIDE (EDGE COMPUTING) PROFILE METRICS`);
-              console.log(`⏱️ Total Execution Time: ${gecenSure.toFixed(2)} ms`);
-              console.log(`📊 Average Latency per Sample Point: ${(gecenSure / 20).toFixed(2)} ms`);
-              console.log(`🗻 Interpolated Elevation Dataset (20 Points - Meters):`);
-              console.log(JSON.stringify(yukseklikler));
+              console.log(`⏱️ Total Execution Time: ${executionTime.toFixed(2)} ms`);
+              console.log(`📊 Average Latency per Sample Point: ${(executionTime / 20).toFixed(2)} ms`);
+              console.log(`| Interpolated Elevation Dataset (20 Points - Meters):`);
+              console.log(JSON.stringify(extractedHeights));
               console.log(`==================================================`);
 
             } catch (err) {
-              //console.error("[STEP 5 ERROR] sampleTerrainMostDetailed execution crashed:", err);
+              console.error("❌ [STEP 5 ERROR] sampleTerrainMostDetailed execution crashed:", err);
             }
           } else {
-            //console.log("[STEP 5 SKIPPED] Stored point 1. Awaiting second point to run profile analysis.");
+            console.log("ℹ️ [STEP 5 SKIPPED] Stored point 1. Awaiting second point to run profile analysis.");
           }
         }, ScreenSpaceEventType.LEFT_CLICK);
 
