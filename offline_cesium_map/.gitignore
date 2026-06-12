@@ -1,7 +1,0 @@
-volumes/
-node_modules/
-dist/
-*.zip
-mapserver_test.txt
-Untitled-1
-.DS_Store
