@@ -1,8 +1,6 @@
-# 🌐 3D Geospatial Visualization & Client-Side Terrain Profile Analysis System
+# 🌐 3D Geospatial Visualization & Hybrid GIS Infrastructure
 
-An advanced, high-performance Geographic Information System (GIS) application built with a hybrid edge-computing architecture. The system serves high-resolution spatial datasets from a dedicated backend container mesh and executes intensive mathematical terrain elevation profiling directly inside the client's browser kernel within **~6 milliseconds**.
-
----
+An advanced, high-performance Geographic Information System (GIS) application leveraging a hybrid edge-computing architecture. The system orchestrates containerized backend spatial engines (Nginx & MapServer) to deliver dynamic WMS layers and static 3D terrain assets, enabling real-time multi-layered terrain visualization and highly optimized client-side spatial analytics.
 
 ## 🏗️ 1. System Architecture & Component Breakdown
 
