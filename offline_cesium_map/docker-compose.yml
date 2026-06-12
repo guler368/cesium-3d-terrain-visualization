@@ -6,11 +6,9 @@ services:
     ports:
       - "8080:80"
     volumes:
-      # Bilgisayarındaki tek bir 'volumes' klasörünü konteynerin içine köprüledik
-      - ./volumes:/etc/mapserver/volumes
+      - ./volumes:/etc/mapserver
     environment:
-      # Haritanın konteyner içindeki tam ve kesin yeri artık burası:
-      - MS_MAPFILE=/etc/mapserver/volumes/mapfiles/harita.map
+      - MS_MAPFILE=/etc/mapserver/mapfiles/harita.map
       - MS_CORS_ENABLED=true
     restart: always
 
@@ -21,6 +19,5 @@ services:
     volumes:
       - ./dist:/usr/share/nginx/html
       - ./nginx.conf:/etc/nginx/nginx.conf
-      # Nginx'in .terrain dosyalarını okuyabilmesi için ortak volumes/data klasörünü bağladık:
       - ./volumes/data:/data
     restart: always

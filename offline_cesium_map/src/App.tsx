@@ -114,7 +114,7 @@ function App() {
           layers: 'tr_raster,dresden_binalar,dresden_noktalar,sahil_ortofoto', 
           parameters: {
             // ✅ DEĞİŞEN KISIM: harita.map dosyasının yeni konteyner içi mutlak adresini verdik!
-            map: '/etc/mapserver/volumes/mapfiles/harita.map',
+            map: '/etc/mapserver/mapfiles/harita.map',
             transparent: true, 
             format: 'image/png'
           },
