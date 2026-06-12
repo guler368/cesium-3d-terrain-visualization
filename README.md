@@ -2,30 +2,24 @@
 
 An advanced, high-performance Geographic Information System (GIS) application leveraging a hybrid edge-computing architecture. The system orchestrates containerized backend spatial engines (Nginx & MapServer) to deliver dynamic WMS layers and static 3D terrain assets, enabling real-time multi-layered terrain visualization and highly optimized client-side spatial analytics.
 
+---
+
 ## 🏗️ 1. System Architecture & Component Breakdown
 
-The application splits computational heavy-lifting and static file serving into two distinct phases using a decentralized approach:
+The application decouples spatial data streaming from intensive analysis by splitting production loads into dedicated layers:
 
-[ Client Browser (CesiumJS) ]
-│
-├── (1) HTTP GET (Static .terrain Tiles) ──────► [ Nginx Server (Port 80) ]
-│                                                     │ (Serves Pre-processed
-│                                                        Quantized-Mesh from Disk)
-│
-├── (2) HTTP GET (WMS Map Tiles PNG) ──────────► [ MapServer CGI (Port 8080) ]
-│                                                     │ (Renders on-the-fly via GDAL
-│                                                        from raw GeoTIFF/Shapefiles)
-│
-└── (3) Local Evaluation (6 ms Lerp + Barycentric Interp)
-[ Executed natively via Client CPU/GPU ]
+### 📡 Data Pipeline & Communication Flow
+* **Static Asset Request:** The client browser requests pre-processed, static 3D geometry files directly via standard HTTP GET streams from the Nginx core layer.
+* **Dynamic Imagery Request:** Map viewport movements trigger automated Web Map Service (WMS) tile demands, handled concurrently by the standalone C++ rendering engine.
+* **Decentralized Evaluation:** Profiling actions trigger purely local algorithmic calculations. The system utilizes client-side hardware pipelines, completing the spatial lookup without hitting server application layers.
 
-### 🛰️ Backend Infrastructure (Docker Mesh)
-* **Nginx (Port 80):** Serves pre-processed 3D Quantized-Mesh (`.terrain`) tiles and static KML overlays. It acts as a lightweight, lightning-fast static asset provider with no runtime compute load on the server side.
-* **MapServer & GDAL Engine (Port 8080):** A native C++ compiled CGI map engine. It utilizes the **GDAL (Geospatial Data Abstraction Library)** layer to read raw physical rasters (`tr_raster`), Dresden vector datasets, and orthophotos on-the-fly, serving them as dynamic WMS (Web Map Service) PNG tiles.
+### 🛰️ Backend Infrastructure (Docker Container Mesh)
+* **Nginx Server (Port 80):** Dedicated to high-throughput binary transmission. It serves static, pre-processed 3D Quantized-Mesh (`.terrain`) files and KML overlay configurations directly from persistent storage vectors, imposing zero runtime processing overhead on the host machine.
+* **MapServer CGI & GDAL Engine (Port 8080):** A low-level, C++ compiled map production runtime. Backed natively by the **GDAL (Geospatial Data Abstraction Library)** binary layer, it queries multi-gigabyte source data (raw GeoTIFF rasters, Dresden structural footprints, and high-altitude orthophotos) on-the-fly, packaging them into compressed WMS layers.
 
-### ⚡ Frontend Engine (Vite + React + TypeScript + CesiumJS)
-* **Vite Developer Server (Port 5173):** Used during the active development phase to provide Hot Module Replacement (HMR) and manage internal ES modules/asset paths of the massive CesiumJS library.
-* **CesiumJS Kernel:** A 3D WebGL graphics engine running in the browser. It coordinates camera rays, intercepts screen space events, and executes runtime spatial interpolation.
+### ⚡ Frontend Runtime (Vite + React + TypeScript + CesiumJS)
+* **Vite Dev Server (Port 5173):** Manages internal developer utilities, structural dependency trees, and hot module replacements for the frontend implementation.
+* **CesiumJS Kernel:** A standalone WebGL graphics engine executing inside the client sandbox. It reads hardware vector layers, projects multi-dimensional camera coordinates, and dynamically processes spatial interpolation trees.
 
 ---
 
@@ -38,7 +32,7 @@ The system explicitly avoids legacy server-side computing functions (such as Map
 2.  **Ray Casting:** The 2D screen coordinate is transformed into a 3D vector ray via `camera.getPickRay()` and intersected with the virtual globe surface to extract raw geographic coordinates (Latitude/Longitude).
 3.  **Linear Interpolation (Lerp):** The frontend mathematically slices the great-circle path between Point 1 and Point 2 into **20 equidistant coordinates** using a custom `lerp()` algorithm.
 4.  **Asynchronous Caching & Fetching:** CesiumJS queries its spatial **Quadtree index** to locate the exact tiles matching those 20 coordinates, requesting only the specific binary `.terrain` pieces from Nginx.
-5.  **Edge Computation Success (~6 ms):** Once the binary mesh layers are cached into the browser RAM, the client machine's CPU executes **Barycentric Interpolation** across the 3D triangle nodes to compute sub-meter accurate profile elevations natively, bypassing the backend server entirely.
+5.  **Edge Computation Success:** Once the binary mesh layers are cached into the browser RAM, the client machine's CPU executes **Barycentric Interpolation** across the 3D triangle nodes to compute sub-meter accurate profile elevations natively, bypassing the backend server entirely.
 
 ---
 
